@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'  // ✅ This import is CRITICAL
 import { Home, CreditCard, PieChart, Calendar, TrendingUp, Settings, Inbox } from 'lucide-react'
 
 const navigation = [

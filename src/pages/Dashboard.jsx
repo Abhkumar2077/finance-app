@@ -7,6 +7,7 @@ import { SmartSuggestionGenerator } from '../components/learning/SmartSuggestion
 import { LearningInsights } from '../components/learning/LearningInsights'
 import { CSVImportModal } from '../components/transactions/CSVImportModal'
 
+console.log('Dashboard loaded, router working:', !!useNavigate)
 export default function Dashboard() {
   const { state, dispatch } = useAppContext()
   const navigate = useNavigate()
