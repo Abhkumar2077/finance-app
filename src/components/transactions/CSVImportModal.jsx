@@ -10,7 +10,21 @@ export function CSVImportModal({ onClose }) {
   const [columnMapping, setColumnMapping] = useState({})
   const [errors, setErrors] = useState([])
   const [isLoading, setIsLoading] = useState(false)
-
+const [importStats, setImportStats] = useState({
+  total: 0,
+  successful: 0,
+  failed: 0,
+  duplicates: 0
+})
+const detectDuplicates = (transactions) => {
+  return transactions.filter((tx, index, self) =>
+    index !== self.findIndex(t => 
+      t.name === tx.name && 
+      t.amount === tx.amount && 
+      t.date === tx.date
+    )
+  )
+}
   const expectedColumns = ['date', 'description', 'amount', 'category']
 
   const handleFileUpload = (event) => {

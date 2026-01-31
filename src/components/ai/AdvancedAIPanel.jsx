@@ -1,14 +1,56 @@
 import { useState } from 'react'
 import { Brain, Zap, TrendingUp, Clock, Calendar, Target, BarChart } from 'lucide-react'
 import { useAppContext } from '../../context/AppContext'
-import { getAIEngine } from '../../utils/aiLearningEngine'
 
 export function AdvancedAIPanel() {
   const { state, dispatch } = useAppContext()
   const [showDetails, setShowDetails] = useState(false)
   
-  const aiEngine = getAIEngine(state.learningWeights)
-  const insights = aiEngine.getInsights()
+  // Simple insights calculation (no AI engine dependency)
+  const getInsights = () => {
+    const totalDecisions = state.learningWeights.acceptedPatterns.length + 
+                          state.learningWeights.rejectedPatterns.length
+    
+    // Calculate type preferences from weights
+    const typePreferences = Object.entries(state.learningWeights.suggestionTypes || {})
+      .map(([type, weight]) => ({
+        type,
+        weight,
+        preference: weight > 1.2 ? 'Strong' : weight > 1.0 ? 'Moderate' : weight < 0.8 ? 'Low' : 'Neutral'
+      }))
+      .filter(pref => pref.weight !== 1.0)
+      .sort((a, b) => b.weight - a.weight)
+    
+    // Detect simple patterns from accepted/rejected
+    const patterns = []
+    
+    // Find patterns in accepted suggestions
+    const acceptedByType = {}
+    state.learningWeights.acceptedPatterns.forEach(pattern => {
+      acceptedByType[pattern.type] = (acceptedByType[pattern.type] || 0) + 1
+    })
+    
+    Object.entries(acceptedByType).forEach(([type, count]) => {
+      if (count >= 2) {
+        patterns.push({
+          type,
+          value: `${count} accepted`,
+          acceptanceRate: 100,
+          strength: Math.min(100, count * 25)
+        })
+      }
+    })
+    
+    return {
+      readiness: totalDecisions >= 3,
+      totalDecisions,
+      learningProgress: Math.min(100, (totalDecisions / 10) * 100),
+      typePreferences,
+      patterns
+    }
+  }
+  
+  const insights = getInsights()
   
   const generateAdvancedSuggestion = () => {
     dispatch({ type: 'GENERATE_ADVANCED_SUGGESTION' })
@@ -32,6 +74,19 @@ export function AdvancedAIPanel() {
   }
   
   const learningLevel = getLearningLevel()
+
+  // Helper function to get color classes
+  const getColorClasses = (color) => {
+    const colorMap = {
+      blue: { from: 'from-blue-500', to: 'to-blue-300', bg: 'bg-blue-500' },
+      green: { from: 'from-green-500', to: 'to-green-300', bg: 'bg-green-500' },
+      purple: { from: 'from-purple-500', to: 'to-purple-300', bg: 'bg-purple-500' },
+      yellow: { from: 'from-yellow-500', to: 'to-yellow-300', bg: 'bg-yellow-500' }
+    }
+    return colorMap[color] || colorMap.blue
+  }
+  
+  const levelColors = getColorClasses(learningLevel.color)
 
   return (
     <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-xl border border-gray-700 shadow-xl p-6 text-white">
@@ -66,7 +121,7 @@ export function AdvancedAIPanel() {
         </div>
         <div className="w-full bg-gray-700 rounded-full h-2.5">
           <div 
-            className={`h-2.5 rounded-full bg-gradient-to-r from-${learningLevel.color}-500 to-${learningLevel.color}-300`}
+            className={`h-2.5 rounded-full bg-gradient-to-r ${levelColors.from} ${levelColors.to}`}
             style={{ width: `${learningLevel.progress}%` }}
           ></div>
         </div>
@@ -97,7 +152,7 @@ export function AdvancedAIPanel() {
             <span className="text-sm text-gray-300">Top Type</span>
           </div>
           <div className="text-lg font-bold">
-            {Object.entries(state.learningWeights.suggestionTypes)
+            {Object.entries(state.learningWeights.suggestionTypes || {})
               .sort(([, a], [, b]) => b - a)[0]?.[0]?.replace('_', ' ') || 'Budget'}
           </div>
         </div>
@@ -108,7 +163,7 @@ export function AdvancedAIPanel() {
             <span className="text-sm text-gray-300">Top Category</span>
           </div>
           <div className="text-lg font-bold">
-            {Object.entries(state.learningWeights.categories)
+            {Object.entries(state.learningWeights.categories || {})
               .sort(([, a], [, b]) => b - a)[0]?.[0] || 'Groceries'}
           </div>
         </div>

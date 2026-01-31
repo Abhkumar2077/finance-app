@@ -1,5 +1,11 @@
 import { createContext, useContext, useReducer, useEffect } from 'react'
-import { getAIEngine } from '../utils/aiLearningEngine'
+
+// Helper function for next month date
+const getNextMonthDate = () => {
+  const date = new Date()
+  date.setMonth(date.getMonth() + 1)
+  return date.toISOString().split('T')[0]
+}
 
 // Advanced learning weights - tracks user preferences
 const initialWeights = {
@@ -27,8 +33,8 @@ const initialWeights = {
     evening: 1.0,
     weekend: 1.0
   },
-  rejectedPatterns: [],
   acceptedPatterns: [],
+  rejectedPatterns: [],
   frequencyAdjustment: 0.8
 }
 
@@ -73,18 +79,159 @@ const initialState = {
       createdAt: new Date().toISOString()
     }
   ],
+  subscriptions: [
+    { 
+      id: 1, 
+      name: 'Netflix', 
+      amount: 15.99, 
+      frequency: 'monthly', 
+      category: 'Entertainment', 
+      renewalDate: getNextMonthDate(), 
+      active: true,
+      createdAt: new Date().toISOString()
+    },
+    { 
+      id: 2, 
+      name: 'Spotify', 
+      amount: 9.99, 
+      frequency: 'monthly', 
+      category: 'Entertainment', 
+      renewalDate: getNextMonthDate(), 
+      active: true,
+      createdAt: new Date().toISOString()
+    },
+    { 
+      id: 3, 
+      name: 'Gym Membership', 
+      amount: 29.99, 
+      frequency: 'monthly', 
+      category: 'Health', 
+      renewalDate: getNextMonthDate(), 
+      active: true,
+      createdAt: new Date().toISOString()
+    }
+  ],
+  predictions: null,
+  financialReports: [],
   learningWeights: initialWeights,
   userPreferences: {
     currency: 'USD',
     weekStart: 'monday',
     aiInsightsEnabled: true,
-    notificationsEnabled: true
+    notificationsEnabled: true,
+    autoGenerateReports: false
   },
   aiInsights: null
 }
 
+// Helper function for parsing dates
+const parseTransactionDate = (dateString) => {
+  try {
+    if (dateString === 'Today') return new Date()
+    if (dateString === 'Yesterday') {
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      return yesterday
+    }
+    
+    const [monthStr, dayStr] = dateString.split(' ')
+    const monthMap = {
+      'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+      'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+    }
+    
+    const month = monthMap[monthStr]
+    const day = parseInt(dayStr)
+    const currentYear = new Date().getFullYear()
+    
+    return new Date(currentYear, month, day)
+  } catch {
+    return null
+  }
+}
+
+// Helper function for predictive analytics
+const calculateMonthlyPredictions = (transactions) => {
+  const now = new Date()
+  const monthlyData = {}
+  
+  transactions.forEach(transaction => {
+    if (transaction.amount < 0) {
+      const date = parseTransactionDate(transaction.date)
+      if (date) {
+        const monthKey = `${date.getFullYear()}-${date.getMonth()}`
+        monthlyData[monthKey] = (monthlyData[monthKey] || 0) + Math.abs(transaction.amount)
+      }
+    }
+  })
+  
+  const monthlyTotals = Object.values(monthlyData)
+  const averageMonthly = monthlyTotals.length > 0 
+    ? monthlyTotals.reduce((a, b) => a + b) / monthlyTotals.length 
+    : 0
+  
+  let predictedNextMonth = averageMonthly
+  let trend = 'stable'
+  
+  if (monthlyTotals.length >= 3) {
+    const lastMonth = monthlyTotals[monthlyTotals.length - 1]
+    const secondLastMonth = monthlyTotals[monthlyTotals.length - 2]
+    const growthRate = (lastMonth - secondLastMonth) / secondLastMonth
+    predictedNextMonth = lastMonth * (1 + growthRate)
+    trend = growthRate > 0.05 ? 'increasing' : growthRate < -0.05 ? 'decreasing' : 'stable'
+  }
+  
+  let confidence = 'medium'
+  if (monthlyTotals.length >= 6) confidence = 'high'
+  if (monthlyTotals.length <= 2) confidence = 'low'
+  
+  return {
+    averageMonthly: Math.round(averageMonthly),
+    predictedNextMonth: Math.round(predictedNextMonth),
+    confidence,
+    trend,
+    dataPoints: monthlyTotals.length
+  }
+}
+
+// Helper function for subscription metrics
+const calculateSubscriptionMetrics = (subscriptions) => {
+  const activeSubscriptions = subscriptions.filter(sub => sub.active)
+  
+  const monthlyCost = activeSubscriptions.reduce((sum, sub) => {
+    const multiplier = sub.frequency === 'yearly' ? 1/12 : sub.frequency === 'weekly' ? 4.33 : 1
+    return sum + (sub.amount * multiplier)
+  }, 0)
+  
+  const yearlyCost = monthlyCost * 12
+  
+  const categoryBreakdown = activeSubscriptions.reduce((acc, sub) => {
+    acc[sub.category] = (acc[sub.category] || 0) + sub.amount
+    return acc
+  }, {})
+  
+  // Find upcoming renewals (next 7 days)
+  const now = new Date()
+  const sevenDaysFromNow = new Date(now)
+  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7)
+  
+  const upcomingRenewals = activeSubscriptions.filter(sub => {
+    const renewalDate = new Date(sub.renewalDate)
+    return renewalDate >= now && renewalDate <= sevenDaysFromNow
+  })
+  
+  return {
+    monthlyCost,
+    yearlyCost,
+    activeCount: activeSubscriptions.length,
+    categoryBreakdown,
+    upcomingRenewals
+  }
+}
+
 function appReducer(state, action) {
   switch (action.type) {
+    // ========== TRANSACTION ACTIONS ==========
     case 'ADD_TRANSACTION':
       return {
         ...state,
@@ -97,92 +244,122 @@ function appReducer(state, action) {
         transactions: state.transactions.filter(t => t.id !== action.payload)
       }
       
+    case 'IMPORT_TRANSACTIONS':
+      const importedTransactions = action.payload.map((tx, index) => ({
+        ...tx,
+        id: Date.now() + index
+      }))
+      
+      return {
+        ...state,
+        transactions: [...state.transactions, ...importedTransactions]
+      }
+      
+    // ========== BUDGET ACTIONS ==========
+    case 'ADD_BUDGET':
+      const budgetWithPercentage = {
+        ...action.payload,
+        percentage: action.payload.budget > 0 
+          ? Math.round((action.payload.spent / action.payload.budget) * 100)
+          : 0
+      }
+      
+      return {
+        ...state,
+        budgets: [...state.budgets, budgetWithPercentage]
+      }
+    
+    case 'UPDATE_BUDGET':
+      const updatedBudget = {
+        ...action.payload,
+        percentage: action.payload.budget > 0 
+          ? Math.round((action.payload.spent / action.payload.budget) * 100)
+          : 0
+      }
+      
+      return {
+        ...state,
+        budgets: state.budgets.map(budget =>
+          budget.id === action.payload.id
+            ? updatedBudget
+            : budget
+        )
+      }
+    
+    case 'DELETE_BUDGET':
+      return {
+        ...state,
+        budgets: state.budgets.filter(b => b.id !== action.payload)
+      }
+      
+    // ========== SUGGESTION ACTIONS ==========
     case 'UPDATE_SUGGESTION_STATUS':
       const suggestion = state.suggestions.find(s => s.id === action.payload.id)
+      
+      if (!suggestion) {
+        return state
+      }
+      
       const updatedSuggestions = state.suggestions.map(s =>
         s.id === action.payload.id
           ? { ...s, status: action.payload.status }
           : s
       )
       
-      // Initialize AI Engine
-      const aiEngine = getAIEngine(state.learningWeights)
-      
-      // Learn from decision with advanced AI
       const timestamp = new Date().toISOString()
       const hour = new Date().getHours()
       const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'
       const isWeekend = [0, 6].includes(new Date().getDay())
       
-      if (suggestion) {
-        // Record decision for AI learning
-        aiEngine.learnFromDecision({
-          suggestion: {
-            type: suggestion.type,
-            category: suggestion.category,
-            confidence: suggestion.confidence
-          },
-          action: action.payload.status,
-          timestamp,
-          context: {
-            timeOfDay,
-            isWeekend
-          }
-        })
-        
-        // Get updated weights from AI engine
-        const newWeightsData = aiEngine.exportWeights()
-        
-        // Update learning weights in state
-        let newWeights = { ...state.learningWeights }
-        
-        // Merge AI engine weights with existing weights
-        newWeights = {
-          ...newWeights,
-          suggestionTypes: { 
-            ...newWeights.suggestionTypes, 
-            ...newWeightsData.weights.suggestionTypes 
-          },
-          categories: { 
-            ...newWeights.categories, 
-            ...newWeightsData.weights.categories 
-          },
-          timePatterns: newWeightsData.weights.timePatterns || initialWeights.timePatterns,
-          rejectedPatterns: action.payload.status === 'rejected' 
-            ? [...newWeights.rejectedPatterns, {
-                type: suggestion.type,
-                category: suggestion.category,
-                timestamp,
-                context: { timeOfDay, isWeekend }
-              }]
-            : newWeights.rejectedPatterns,
-          acceptedPatterns: action.payload.status === 'accepted' 
-            ? [...newWeights.acceptedPatterns, {
-                type: suggestion.type,
-                category: suggestion.category,
-                timestamp,
-                context: { timeOfDay, isWeekend }
-              }]
-            : newWeights.acceptedPatterns
-        }
-        
-        return {
-          ...state,
-          suggestions: updatedSuggestions,
-          learningWeights: newWeights
-        }
+      const newWeights = { ...state.learningWeights }
+      const change = action.payload.status === 'accepted' ? 0.1 : -0.2
+      
+      if (newWeights.suggestionTypes[suggestion.type] !== undefined) {
+        newWeights.suggestionTypes[suggestion.type] = 
+          Math.max(0.3, Math.min(2.0, newWeights.suggestionTypes[suggestion.type] + change))
       }
-      return state
+      
+      if (suggestion.category && newWeights.categories[suggestion.category] !== undefined) {
+        newWeights.categories[suggestion.category] = 
+          Math.max(0.3, Math.min(2.0, newWeights.categories[suggestion.category] + change))
+      }
+      
+      const pattern = {
+        type: suggestion.type,
+        category: suggestion.category,
+        timestamp,
+        context: { timeOfDay, isWeekend }
+      }
+      
+      if (action.payload.status === 'accepted') {
+        newWeights.acceptedPatterns = [...newWeights.acceptedPatterns, pattern]
+      } else if (action.payload.status === 'rejected') {
+        newWeights.rejectedPatterns = [...newWeights.rejectedPatterns, pattern]
+      }
+      
+      return {
+        ...state,
+        suggestions: updatedSuggestions,
+        learningWeights: newWeights
+      }
     
     case 'APPLY_SUGGESTION':
       const applySuggestion = state.suggestions.find(s => s.id === action.payload.id)
       
-      if (applySuggestion?.type === 'budget_adjustment') {
+      if (!applySuggestion) {
+        return state
+      }
+      
+      if (applySuggestion.type === 'budget_adjustment') {
         return {
           ...state,
           budgets: state.budgets.map(budget =>
             budget.category === applySuggestion.proposedChange.category
-              ? { ...budget, budget: applySuggestion.proposedChange.newAmount }
+              ? { 
+                  ...budget, 
+                  budget: applySuggestion.proposedChange.newAmount,
+                  percentage: Math.round((budget.spent / applySuggestion.proposedChange.newAmount) * 100)
+                }
               : budget
           ),
           suggestions: state.suggestions.map(s =>
@@ -192,6 +369,7 @@ function appReducer(state, action) {
           )
         }
       }
+      
       return state
     
     case 'GENERATE_NEW_SUGGESTION':
@@ -208,25 +386,17 @@ function appReducer(state, action) {
       }
     
     case 'GENERATE_ADVANCED_SUGGESTION':
-      const aiEngineAdvanced = getAIEngine(state.learningWeights)
-      const hourNow = new Date().getHours()
-      const timeOfDayNow = hourNow < 12 ? 'morning' : hourNow < 17 ? 'afternoon' : 'evening'
-      const isWeekendNow = [0, 6].includes(new Date().getDay())
+      const categories = ['Groceries', 'Dining Out', 'Entertainment', 'Transportation', 'Shopping']
+      const suggestionTypes = ['budget_adjustment', 'risk_alert', 'category_restructure']
       
-      // Generate suggestion using advanced AI
-      const aiSuggestion = aiEngineAdvanced.generateSuggestion({
-        transactions: state.transactions,
-        budgets: state.budgets,
-        timeOfDay: timeOfDayNow,
-        isWeekend: isWeekendNow
-      })
+      const randomCategory = categories[Math.floor(Math.random() * categories.length)]
+      const randomType = suggestionTypes[Math.floor(Math.random() * suggestionTypes.length)]
       
-      // Create suggestion based on AI output
       const suggestionTemplates = {
         budget_adjustment: (category) => ({
           title: `Adjust ${category} Budget`,
-          description: `Consider optimizing your ${category.toLowerCase()} budget based on AI analysis of your spending patterns.`,
-          rationale: 'AI detected patterns in your spending that suggest budget optimization.',
+          description: `Consider optimizing your ${category.toLowerCase()} budget based on spending patterns.`,
+          rationale: 'Analysis suggests budget optimization opportunity.',
           type: 'budget_adjustment',
           category,
           proposedChange: { 
@@ -235,9 +405,9 @@ function appReducer(state, action) {
           }
         }),
         risk_alert: (category) => ({
-          title: `${category} Spending Pattern Alert`,
-          description: `AI detected unusual patterns in your ${category.toLowerCase()} spending that may need attention.`,
-          rationale: 'Pattern analysis suggests potential overspending in this category.',
+          title: `${category} Spending Pattern`,
+          description: `Unusual patterns detected in ${category.toLowerCase()} spending.`,
+          rationale: 'Pattern analysis suggests attention needed.',
           type: 'risk_alert',
           category,
           proposedChange: { 
@@ -245,32 +415,10 @@ function appReducer(state, action) {
             categoryId: category 
           }
         }),
-        savings_opportunity: (category) => ({
-          title: `Savings Opportunity in ${category}`,
-          description: `AI found potential savings in your ${category.toLowerCase()} spending without sacrificing quality.`,
-          rationale: 'Comparative analysis suggests optimization opportunities.',
-          type: 'savings_opportunity',
-          category,
-          proposedChange: { 
-            category, 
-            potentialSavings: Math.floor(Math.random() * 50) + 20 
-          }
-        }),
-        subscription_optimization: () => ({
-          title: `Subscription Optimization`,
-          description: `AI analyzed your recurring payments and found potential optimization opportunities.`,
-          rationale: 'Subscription cost analysis reveals potential savings.',
-          type: 'subscription_optimization',
-          category: 'Subscriptions',
-          proposedChange: { 
-            action: 'review_subscriptions',
-            potentialSavings: Math.floor(Math.random() * 30) + 10 
-          }
-        }),
         category_restructure: (category) => ({
           title: `Restructure ${category} Spending`,
-          description: `Consider restructuring your ${category.toLowerCase()} spending for better efficiency.`,
-          rationale: 'AI analysis suggests category restructuring could improve financial flow.',
+          description: `Consider restructuring your ${category.toLowerCase()} spending for efficiency.`,
+          rationale: 'Analysis suggests restructuring could improve financial flow.',
           type: 'category_restructure',
           category,
           proposedChange: { 
@@ -280,33 +428,126 @@ function appReducer(state, action) {
         })
       }
       
-      const template = suggestionTemplates[aiSuggestion.type]
+      const template = suggestionTemplates[randomType]
       const suggestionData = template 
-        ? template(aiSuggestion.category)
-        : suggestionTemplates.budget_adjustment(aiSuggestion.category)
+        ? template(randomCategory)
+        : suggestionTemplates.budget_adjustment(randomCategory)
       
       const advancedSuggestion = {
         id: Date.now(),
         ...suggestionData,
-        confidence: aiSuggestion.confidence,
+        confidence: Math.floor(Math.random() * 30) + 70,
         status: 'pending',
         createdAt: new Date().toISOString(),
-        aiContext: aiSuggestion.context,
-        dataReferences: [
-          `AI Confidence: ${aiSuggestion.confidence}%`,
-          `Time Context: ${timeOfDayNow}${isWeekendNow ? ' (Weekend)' : ''}`,
-          'Powered by Advanced Learning Engine'
-        ]
+        dataReferences: ['Simple pattern detection']
       }
       
       return {
         ...state,
         suggestions: [...state.suggestions, advancedSuggestion]
       }
+      
+    // ========== SUBSCRIPTION ACTIONS ==========
+    case 'ADD_SUBSCRIPTION':
+      const subscription = {
+        id: Date.now(),
+        ...action.payload,
+        active: true,
+        createdAt: new Date().toISOString()
+      }
+      
+      return {
+        ...state,
+        subscriptions: [...state.subscriptions, subscription]
+      }
     
+    case 'UPDATE_SUBSCRIPTION':
+      return {
+        ...state,
+        subscriptions: state.subscriptions.map(sub =>
+          sub.id === action.payload.id
+            ? { ...sub, ...action.payload.updates }
+            : sub
+        )
+      }
+    
+    case 'TOGGLE_SUBSCRIPTION':
+      return {
+        ...state,
+        subscriptions: state.subscriptions.map(sub =>
+          sub.id === action.payload
+            ? { ...sub, active: !sub.active }
+            : sub
+        )
+      }
+    
+    case 'DELETE_SUBSCRIPTION':
+      return {
+        ...state,
+        subscriptions: state.subscriptions.filter(sub => sub.id !== action.payload)
+      }
+      
+    // ========== PREDICTIVE ANALYTICS ACTIONS ==========
+    case 'UPDATE_PREDICTIONS':
+      return {
+        ...state,
+        predictions: action.payload
+      }
+    
+    case 'CALCULATE_PREDICTIONS':
+      const predictions = calculateMonthlyPredictions(state.transactions)
+      return {
+        ...state,
+        predictions
+      }
+      
+    // ========== FINANCIAL REPORTS ACTIONS ==========
+    case 'GENERATE_REPORT':
+      const now = new Date()
+      const report = {
+        id: Date.now(),
+        type: action.payload.type || 'weekly',
+        period: action.payload.period || 
+          `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`,
+        data: {
+          transactions: state.transactions,
+          budgets: state.budgets,
+          subscriptions: state.subscriptions,
+          suggestions: state.suggestions
+        },
+        summary: action.payload.summary || {},
+        createdAt: new Date().toISOString()
+      }
+      
+      return {
+        ...state,
+        financialReports: [report, ...state.financialReports]
+      }
+    
+    case 'DELETE_REPORT':
+      return {
+        ...state,
+        financialReports: state.financialReports.filter(r => r.id !== action.payload)
+      }
+      
+    // ========== AI & LEARNING ACTIONS ==========
     case 'GET_AI_INSIGHTS':
-      const aiEngineInsights = getAIEngine(state.learningWeights)
-      const insights = aiEngineInsights.getInsights()
+      const totalDecisions = state.learningWeights.acceptedPatterns.length + 
+                            state.learningWeights.rejectedPatterns.length
+      
+      const insights = {
+        readiness: totalDecisions >= 3,
+        totalDecisions,
+        learningProgress: Math.min(100, (totalDecisions / 10) * 100),
+        typePreferences: Object.entries(state.learningWeights.suggestionTypes)
+          .map(([type, weight]) => ({
+            type,
+            weight,
+            preference: weight > 1.0 ? 'High' : weight < 1.0 ? 'Low' : 'Neutral'
+          }))
+          .sort((a, b) => b.weight - a.weight),
+        patterns: []
+      }
       
       return {
         ...state,
@@ -314,10 +555,6 @@ function appReducer(state, action) {
       }
     
     case 'RESET_LEARNING':
-      // Reset AI engine instance
-      const resetEngine = getAIEngine(initialWeights)
-      resetEngine.importWeights({ weights: initialWeights, userHistory: [], patterns: [] })
-      
       return {
         ...state,
         learningWeights: initialWeights,
@@ -329,30 +566,49 @@ function appReducer(state, action) {
         ...state,
         learningWeights: action.payload
       }
-    
-    // Budget Management Actions
-    case 'ADD_BUDGET':
+      
+    // ========== USER PREFERENCES ACTIONS ==========
+    case 'UPDATE_USER_PREFERENCES':
       return {
         ...state,
-        budgets: [...state.budgets, action.payload]
+        userPreferences: {
+          ...state.userPreferences,
+          ...action.payload
+        }
       }
     
-    case 'UPDATE_BUDGET':
-      return {
-        ...state,
-        budgets: state.budgets.map(budget =>
-          budget.id === action.payload.id
-            ? { ...budget, ...action.payload }
-            : budget
-        )
+    // ========== BULK & SYSTEM ACTIONS ==========
+    case 'CLEAR_ALL_DATA':
+      if (window.confirm('Are you sure? This will delete ALL your data including transactions, budgets, and learning history.')) {
+        return {
+          ...initialState,
+          learningWeights: initialWeights,
+          userPreferences: state.userPreferences // Keep preferences
+        }
       }
+      return state
     
-    case 'DELETE_BUDGET':
-      return {
-        ...state,
-        budgets: state.budgets.filter(b => b.id !== action.payload)
+    case 'EXPORT_DATA':
+      // This action doesn't modify state, just triggers export
+      return state
+      
+    case 'IMPORT_DATA':
+      try {
+        const importedData = action.payload
+        
+        return {
+          ...state,
+          transactions: importedData.transactions || state.transactions,
+          budgets: importedData.budgets || state.budgets,
+          subscriptions: importedData.subscriptions || state.subscriptions,
+          suggestions: importedData.suggestions || state.suggestions,
+          learningWeights: importedData.learningWeights || state.learningWeights
+        }
+      } catch (error) {
+        console.error('Error importing data:', error)
+        return state
       }
-    
+      
     default:
       return state
   }
@@ -365,33 +621,48 @@ export function AppProvider({ children }) {
 
   // Load learning weights from localStorage on startup
   useEffect(() => {
-    const savedWeights = localStorage.getItem('finance-ai-learning-weights')
-    if (savedWeights) {
-      try {
+    try {
+      const savedWeights = localStorage.getItem('finance-ai-learning-weights')
+      if (savedWeights) {
         const parsedWeights = JSON.parse(savedWeights)
-        // Initialize AI engine with saved weights
-        const aiEngine = getAIEngine(parsedWeights)
-        aiEngine.importWeights(parsedWeights)
+        const weightsToLoad = parsedWeights.weights || parsedWeights
         
         dispatch({ 
           type: 'LOAD_LEARNING_WEIGHTS', 
-          payload: parsedWeights 
+          payload: {
+            ...initialWeights,
+            ...weightsToLoad,
+            acceptedPatterns: weightsToLoad.acceptedPatterns || [],
+            rejectedPatterns: weightsToLoad.rejectedPatterns || []
+          }
         })
-      } catch (error) {
-        console.error('Error loading saved weights:', error)
       }
+    } catch (error) {
+      console.error('Error loading saved weights:', error)
     }
   }, [])
 
   // Save learning weights to localStorage on changes
   useEffect(() => {
-    const aiEngine = getAIEngine(state.learningWeights)
-    const fullData = aiEngine.exportWeights()
-    
-    localStorage.setItem('finance-ai-learning-weights', JSON.stringify(fullData))
+    try {
+      localStorage.setItem('finance-ai-learning-weights', JSON.stringify({
+        weights: state.learningWeights,
+        lastUpdated: new Date().toISOString()
+      }))
+    } catch (error) {
+      console.error('Error saving weights:', error)
+    }
   }, [state.learningWeights])
 
-  // Get AI insights on mount and when patterns change
+  // Auto-calculate predictions when transactions change
+  useEffect(() => {
+    if (state.transactions.length > 0) {
+      const predictions = calculateMonthlyPredictions(state.transactions)
+      dispatch({ type: 'UPDATE_PREDICTIONS', payload: predictions })
+    }
+  }, [state.transactions])
+
+  // Get AI insights when patterns change
   useEffect(() => {
     const totalDecisions = state.learningWeights.acceptedPatterns.length + 
                           state.learningWeights.rejectedPatterns.length
@@ -400,6 +671,36 @@ export function AppProvider({ children }) {
       dispatch({ type: 'GET_AI_INSIGHTS' })
     }
   }, [state.learningWeights.acceptedPatterns.length, state.learningWeights.rejectedPatterns.length])
+
+  // Auto-generate weekly report if enabled
+  useEffect(() => {
+    if (state.userPreferences.autoGenerateReports) {
+      const lastReport = state.financialReports[0]
+      const oneWeekAgo = new Date()
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)
+      
+      if (!lastReport || new Date(lastReport.createdAt) < oneWeekAgo) {
+        // Calculate weekly summary
+        const weeklySummary = {
+          totalTransactions: state.transactions.length,
+          newTransactions: state.transactions.filter(t => {
+            const txDate = parseTransactionDate(t.date)
+            return txDate && txDate > oneWeekAgo
+          }).length,
+          budgetsUsed: state.budgets.filter(b => b.percentage > 0).length,
+          suggestionsGenerated: state.suggestions.length
+        }
+        
+        dispatch({ 
+          type: 'GENERATE_REPORT', 
+          payload: { 
+            type: 'weekly',
+            summary: weeklySummary
+          }
+        })
+      }
+    }
+  }, [state.transactions, state.userPreferences.autoGenerateReports, state.financialReports])
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>
@@ -415,3 +716,6 @@ export function useAppContext() {
   }
   return context
 }
+
+// Export helper functions for use in components
+export { calculateSubscriptionMetrics, calculateMonthlyPredictions }

@@ -3,26 +3,26 @@ import { Zap, RefreshCw } from 'lucide-react'
 
 export function SmartSuggestionGenerator() {
   const { state, dispatch } = useAppContext()
-  const { learningWeights } = state
+  const { learningWeights = {} } = state
 
   const generateSmartSuggestion = () => {
-    // Get suggestion types sorted by weight (highest first)
-    const suggestionTypes = Object.entries(learningWeights.suggestionTypes)
+    // Get suggestion types (safe access)
+    const suggestionTypes = Object.entries(learningWeights.suggestionTypes || {})
       .sort(([, weightA], [, weightB]) => weightB - weightA)
       .map(([type]) => type)
 
-    // Get categories sorted by weight (highest first)
-    const categories = Object.entries(learningWeights.categories)
+    // Get categories (safe access)
+    const categories = Object.entries(learningWeights.categories || {})
       .sort(([, weightA], [, weightB]) => weightB - weightA)
       .map(([category]) => category)
 
-    // Pick type and category based on weights (higher weight = more likely)
+    // Pick type and category based on weights or use defaults
     const type = suggestionTypes[0] || 'budget_adjustment'
     const category = categories[0] || 'Groceries'
 
-    // Calculate confidence based on weights
-    const typeWeight = learningWeights.suggestionTypes[type] || 1.0
-    const categoryWeight = learningWeights.categories[category] || 1.0
+    // Calculate confidence safely
+    const typeWeight = learningWeights.suggestionTypes?.[type] || 1.0
+    const categoryWeight = learningWeights.categories?.[category] || 1.0
     const baseConfidence = 70
     const confidence = Math.min(
       95,
@@ -77,9 +77,9 @@ export function SmartSuggestionGenerator() {
   }
 
   const getRecommendationReason = () => {
-    const topType = Object.entries(learningWeights.suggestionTypes)
+    const topType = Object.entries(learningWeights.suggestionTypes || {})
       .sort(([, a], [, b]) => b - a)[0]
-    const topCategory = Object.entries(learningWeights.categories)
+    const topCategory = Object.entries(learningWeights.categories || {})
       .sort(([, a], [, b]) => b - a)[0]
 
     if (topType && topCategory) {
@@ -136,7 +136,7 @@ export function SmartSuggestionGenerator() {
       <div className="mt-4 p-3 bg-white rounded-lg border border-gray-200">
         <p className="text-xs text-gray-600 mb-1">Current Learning Weights:</p>
         <div className="flex flex-wrap gap-2">
-          {Object.entries(learningWeights.suggestionTypes)
+          {Object.entries(learningWeights.suggestionTypes || {})
             .filter(([, weight]) => weight !== 1.0)
             .map(([type, weight]) => (
               <span 
